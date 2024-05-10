@@ -6,6 +6,7 @@
 
 #define BITS_PER_BYTE           8
 #define DIV_ROUND_UP(n,d) (((n) + (d) - 1) / (d))
+#define DIV_ROUND_DOWN(n,d) ((n) / (d))
 
 #define BIT(nr)                 (1U << (nr))
 #define BIT_ULL(nr)             (1ULL << (nr))
@@ -35,3 +36,13 @@
 #define NBITS(n) (n==0?0:NBITS32(n))
 
 #define EXTRACT_NBITS(nr, h, l) ((nr&GENMASK(h,l)) >> l)
+
+/* 
+ * student implemented macros 
+ */
+
+// macros supporting 64-bit address
+#define GENMASK64(h, l) \
+    (((~0ULL) << (l)) & (~0ULL >> (64 - (h) - 1)))
+
+#define EXTRACT_NBITS64(nr, h, l) ((nr & GENMASK64(h,l)) >> l)

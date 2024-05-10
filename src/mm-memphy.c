@@ -6,7 +6,7 @@
 
 #include "mm.h"
 #include <stdlib.h>
-
+#include <stdio.h>
 /*
  *  MEMPHY_mv_csr - move MEMPHY cursor
  *  @mp: memphy struct
@@ -154,12 +154,22 @@ int MEMPHY_get_freefp(struct memphy_struct *mp, int *retfpn)
 
    return 0;
 }
-
-int MEMPHY_dump(struct memphy_struct * mp)
+ int MEMPHY_dump(struct memphy_struct * mp)
 {
     /*TODO dump memphy contnt mp->storage 
      *     for tracing the memory content
      */
+    printf("%d", mp->maxsz);
+    for (int i = 0; i < mp->maxsz; i++) 
+    {
+      if ((i != 0) && (i % 40 == 0)) { // newline every 40 bytes
+         printf("\n");
+      }
+      else if ((i != 0) && (i % 4 == 0)) { // space every 4 bytes
+         printf(" ");
+      }
+      printf("%c", mp->storage[i]);
+    }
 
     return 0;
 }
@@ -184,7 +194,7 @@ int MEMPHY_put_freefp(struct memphy_struct *mp, int fpn)
 int init_memphy(struct memphy_struct *mp, int max_size, int randomflg)
 {
    mp->storage = (BYTE *)malloc(max_size*sizeof(BYTE));
-   mp->maxsz = max_size;   
+   mp->maxsz = max_size;
 
    MEMPHY_format(mp,PAGING_PAGESZ);
 

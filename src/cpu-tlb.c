@@ -11,23 +11,85 @@
  * CPU TLB
  * TLB module cpu/cpu-tlb.c
  */
- 
+
 #include "mm.h"
+#include "os-mm.h"
 #include <stdlib.h>
 #include <stdio.h>
 
+/*
+ * update the pte of all TLB entries of a process
+ * @proc: caller process
+ * @mp: tlb memphy struct
+ */
 int tlb_change_all_page_tables_of(struct pcb_t *proc,  struct memphy_struct * mp)
 {
   /* TODO update all page table directory info 
    *      in flush or wipe TLB (if needed)
    */
+#if ASSOCIATED_MAPPING
+
+
+#else
+
+  for (int i = 0; i < PAGING_MAX_SYMTBL_SZ; i++) 
+  {
+    struct vm_rg_struct* curr_rg = get_symrg_byid(proc->mm, i);
+
+    if (curr_rg->rg_start == curr_rg->rg_end) { // region id unused - skip
+      continue;
+    }
+
+    unsigned long rg_start = curr_rg->rg_start;
+    unsigned long rg_end = curr_rg->rg_end;
+
+    int pgn = PAGING_PGN(rg_start);
+    while(pgn * PAGING_PAGESZ < rg_end) {
+      tlb_cache_update(mp, proc->pid, pgn, proc->mm->pgd[pgn]);
+      pgn++;
+    }
+    tlb_cache_update(mp, proc->pid, pgn, proc->mm->pgd[pgn]);
+  }
+
+#endif
 
   return 0;
 }
 
+/* 
+ * clear all TLB entries of a process
+ * @proc: caller process
+ * @mp: tlb memphy struct
+ */
 int tlb_flush_tlb_of(struct pcb_t *proc, struct memphy_struct * mp)
 {
   /* TODO flush tlb cached*/
+#if ASSOCIATED_MAPPING
+
+
+
+#else
+
+  for (int i = 0; i < PAGING_MAX_SYMTBL_SZ; i++) 
+  {
+    struct vm_rg_struct* curr_rg = get_symrg_byid(proc->mm, i);
+
+    if (curr_rg->rg_start == curr_rg->rg_end) { // region id unused - skip
+      continue;
+    }
+
+    unsigned long rg_start = curr_rg->rg_start;
+    unsigned long rg_end = curr_rg->rg_end;
+
+    int pgn = PAGING_PGN(rg_start);
+    while(pgn * PAGING_PAGESZ < rg_end) {
+      tlb_cache_clear(proc->tlb, proc->pid, pgn);
+      pgn++;
+    }
+    tlb_cache_clear(proc->tlb, proc->pid, pgn);
+  }
+
+#endif
 
   return 0;
 }
@@ -43,9 +105,20 @@ int tlballoc(struct pcb_t *proc, uint32_t size, uint32_t reg_index)
 
   /* By default using vmaid = 0 */
   val = __alloc(proc, 0, reg_index, size, &addr);
-
+  if(proc == NULL) return -1;
   /* TODO update TLB CACHED frame num of the new allocated page(s)*/
   /* by using tlb_cache_read()/tlb_cache_write()*/
+
+  
+  if (val == 0 ) 
+  {
+    int pgn = PAGING_PGN(addr);
+    while (pgn * PAGING_PAGESZ < addr + size) {
+      tlb_cache_write(proc->tlb, proc->pid, pgn, proc->mm->pgd[pgn]);
+      pgn++;
+    }
+    tlb_cache_write(proc->tlb, proc->pid, pgn, proc->mm->pgd[pgn]);
+  }
 
   return val;
 }
@@ -57,6 +130,19 @@ int tlballoc(struct pcb_t *proc, uint32_t size, uint32_t reg_index)
  */
 int tlbfree_data(struct pcb_t *proc, uint32_t reg_index)
 {
+  // free entries in TLB
+  if(proc == NULL) return -1;
+  struct vm_rg_struct *curr_rg = get_symrg_byid(proc->mm, reg_index);
+  unsigned long rg_start = curr_rg->rg_start;
+  unsigned long rg_end = curr_rg->rg_end;
+
+  int pgn = PAGING_PGN(rg_start);
+  while (pgn * PAGING_PAGESZ < rg_end) {
+    tlb_cache_clear(proc->tlb, proc->pid, pgn);
+    pgn++;
+  }
+  tlb_cache_clear(proc->tlb, proc->pid, pgn);
+
   __free(proc, 0, reg_index);
 
   /* TODO update TLB CACHED frame num of freed page(s)*/
@@ -75,12 +161,49 @@ int tlbfree_data(struct pcb_t *proc, uint32_t reg_index)
 int tlbread(struct pcb_t * proc, uint32_t source,
             uint32_t offset, 	uint32_t destination) 
 {
-  BYTE data, frmnum = -1;
-	
+  if(proc == NULL) return -1;
+  BYTE data = -1;
+  int frmnum = -1;
+
   /* TODO retrieve TLB CACHED frame num of accessing page(s)*/
   /* by using tlb_cache_read()/tlb_cache_write()*/
   /* frmnum is return value of tlb_cache_read/write value*/
-	
+
+  // search in TLB for page
+  int val = tlb_cache_read(proc->tlb, proc->pid, source, &frmnum);
+
+  if (frmnum >= 0) 
+  {
+    // TLB hit & frame is available in MEMRAM
+    MEMPHY_read(proc->mram, frmnum*PAGING_PAGESZ + offset, &data);
+    destination = (uint32_t) data;
+    return 0;
+  }
+
+  if (val < 0) 
+  {
+    // TLB hit but the page is not available in MEMRAM
+    // attempt to bring it to MEMRAM
+
+    pg_getpage(proc->mm, source, &frmnum, proc);
+
+    if (frmnum < 0) { // attempt failed
+      return -1;
+    }
+
+    tlb_cache_update(proc->tlb, proc->pid, source, proc->mm->pgd[source]);
+  }
+  else 
+  {
+    // handle TLB miss
+
+    // obtain the frame through page table
+    uint32_t pte = proc->mm->pgd[source];
+
+    // update TLB
+    tlb_cache_write(proc->tlb, proc->pid, source, pte);
+  }
+
 #ifdef IODUMP
   if (frmnum >= 0)
     printf("TLB hit at read region=%d offset=%d\n", 
@@ -94,8 +217,8 @@ int tlbread(struct pcb_t * proc, uint32_t source,
   MEMPHY_dump(proc->mram);
 #endif
 
-  int val = __read(proc, 0, source, offset, &data);
-
+  // perform the read
+  val = __read(proc, 0, source, offset, &data);
   destination = (uint32_t) data;
 
   /* TODO update TLB CACHED with frame num of recent accessing page(s)*/
@@ -104,21 +227,63 @@ int tlbread(struct pcb_t * proc, uint32_t source,
   return val;
 }
 
-/*tlbwrite - CPU TLB-based write a region memory
- *@proc: Process executing the instruction
- *@data: data to be wrttien into memory
- *@destination: index of destination register
- *@offset: destination address = [destination] + [offset]
+/*  
+ *  tlbwrite - CPU TLB-based write a region memory
+ *  @proc: Process executing the instruction
+ *  @data: data to be wrttien into memory
+ *  @destination: index of destination register
+ *  @offset: destination address = [destination] + [offset]
  */
 int tlbwrite(struct pcb_t * proc, BYTE data,
              uint32_t destination, uint32_t offset)
 {
+  if(proc == NULL) return -1;
   int val;
   BYTE frmnum = -1;
 
   /* TODO retrieve TLB CACHED frame num of accessing page(s))*/
   /* by using tlb_cache_read()/tlb_cache_write()
   frmnum is return value of tlb_cache_read/write value*/
+
+  //BYTE data, frmnum;
+
+  /* TODO retrieve TLB CACHED frame num of accessing page(s)*/
+  /* by using tlb_cache_read()/tlb_cache_write()*/
+  /* frmnum is return value of tlb_cache_read/write value*/
+
+  // search in TLB for page
+  val = tlb_cache_read(proc->tlb, proc->pid, destination, &frmnum);
+
+  if (frmnum >= 0) 
+  {
+    /* TLB hit & frame is available in MEMRAM */
+    MEMPHY_write(proc->mram, frmnum*PAGING_PAGESZ + offset, data);
+    return 0;
+  }
+
+  if (val < 0) 
+  {
+    /* TLB hit but the page is not available in MEMRAM */
+
+    // attempt to bring it to MEMRAM
+    pg_getpage(proc->mm, destination, &frmnum, proc);
+
+    if (frmnum < 0) { // attempt failed
+      return -1;
+    }
+
+    tlb_cache_update(proc->tlb, proc->pid, destination, proc->mm->pgd[destination]);
+  }
+  else 
+  {
+    /* TLB miss */
+
+    // obtain the frame through page table of caller process
+    uint32_t pte = proc->mm->pgd[destination];
+
+    // update TLB
+    tlb_cache_write(proc->tlb, proc->pid, destination, pte);
+  }
 
 #ifdef IODUMP
   if (frmnum >= 0)

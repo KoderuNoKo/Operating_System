@@ -38,6 +38,10 @@
 /* SWPOFF */
 #define PAGING_PTE_SWPOFF_LOBIT 5
 #define PAGING_PTE_SWPOFF_HIBIT 25
+#define PAGING_PTE_PRESENT_BIT 31
+#define PAGING_PTE_SWAPPED_BIT 30
+#define PAGING_PTE_RESERVED_BIT 29
+#define PAGING_PTE_DIRTY_BIT 28
 
 /* PTE masks */
 #define PAGING_PTE_USRNUM_MASK GENMASK(PAGING_PTE_USRNUM_HIBIT,PAGING_PTE_USRNUM_LOBIT)
@@ -117,6 +121,39 @@ int __write(struct pcb_t *caller, int vmaid, int rgid, int offset, BYTE value);
 int init_mm(struct mm_struct *mm, struct pcb_t *caller);
 
 /* CPUTLB prototypes */
+#define ASSOCIATED_MAPPING 0
+
+/* TLB configs */
+#define TLB_ENTRY_SZ 12 // size of each TLB entry (in bytes)
+
+#if ASSOCIATED_MAPPING
+
+#define N_WAY 16 // degree of associated cache mapping
+
+/* TLB entry bit format */
+#define TLB_LRU_LBIT 0
+#define TLB_LRU_HBIT 3
+
+#define TLB_PID_LBIT 4
+#define TLB_PID_HBIT 31
+
+#define TLB_PTE_LBIT 32
+#define TLB_PTE_HBIT 63
+
+#else
+
+#define TLB_PID_LBIT 0
+#define TLB_PID_HBIT 31
+
+#define TLB_PGN_LBIT 32
+#define TLB_PGN_HBIT 63
+
+#define TLB_PTE_LBIT 64
+#define TLB_PTE_HBIT 95
+
+#endif
+
+/* CPUTLB prototypes */
 int tlb_change_all_page_tables_of(struct pcb_t *proc,  struct memphy_struct * mp);
 int tlb_flush_tlb_of(struct pcb_t *proc, struct memphy_struct * mp);
 int tlballoc(struct pcb_t *proc, uint32_t size, uint32_t reg_index);
@@ -127,6 +164,13 @@ int init_tlbmemphy(struct memphy_struct *mp, int max_size);
 int TLBMEMPHY_read(struct memphy_struct * mp, int addr, BYTE *value);
 int TLBMEMPHY_write(struct memphy_struct * mp, int addr, BYTE data);
 int TLBMEMPHY_dump(struct memphy_struct * mp);
+/* local CPUTLB prototypes */
+int tlb_cache_read(struct memphy_struct * mp, uint32_t pid, int pgnum, int *frnum);
+int tlb_cache_write(struct memphy_struct *mp, uint32_t pid, int pgnum, uint32_t pte);
+int tlb_cache_clear(struct memphy_struct *mp, uint32_t pid, int pgnum);
+int tlb_cache_update(struct memphy_struct *mp, uint32_t pid, int pgnum, uint32_t pte);
+
+
 
 /* VM prototypes */
 int pgalloc(struct pcb_t *proc, uint32_t size, uint32_t reg_index);

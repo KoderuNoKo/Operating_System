@@ -12,6 +12,7 @@ typedef uint32_t addr_t;
 struct pgn_t{
    int pgn;
    struct pgn_t *pg_next; 
+    struct mm_struct* owner;
 };
 
 /*
